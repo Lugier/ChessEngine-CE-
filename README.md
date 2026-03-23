@@ -2,6 +2,26 @@
 
 Local-first project layout aligned with the autonomous build plan: C++ UCI engine, classic eval fallback, compact NNUE (768→256→scalar export), Python dataprep and PyTorch trainer for Apple Silicon (MPS) or CPU.
 
+## Abgleich mit `Gemini.md`
+
+Die Strategie aus **Gemini.md** ist die Referenz für Architektur und Ressourcen. Stand dieses Repos:
+
+| Gemini-Vorgabe | Umsetzung / Status |
+|----------------|-------------------|
+| **Constraint-first**, kein AlphaZero/MCTS/Lc0, keine Searchless-Transformer, kein LLM/MLX als Engine | Bewusst nicht implementiert; README und Code bleiben bei Alpha–Beta + kleinem NNUE. |
+| **Hybrid: C++ Alpha–Beta + NNUE**, taktisch Suche, positionell Netz | Ja: PVS, TT, Nullmove, LMR, Quiescence + optional `cortex.nnue` und klassische Eval als Mischung. |
+| **Training: Distillation** aus fremd evaluierten Daten, **kein** Self-Play-RL | Trainer ist Supervised Learning auf (FEN → WDL); kein MCTS/RL. |
+| **WDL statt roher cp-MSE** (§5.2) | `data/prepare_binpack.py`: Centipawns → **Softmax-WDL** über Logits \((cp/s, 0, -cp/s)\), `--cp-scale` steuerbar. |
+| **Quiet positions** filtern (§5.2) | Out-of-Core-Pipeline (DuckDB/Polars) für große Lichess-Exports ist **noch** anzubinden; `sample_quiet.txt` nur Rauchtest. |
+| **Binärformat statt Massen-FEN auf GPU** (§5.2) | Einfaches `.binpack` (Count + FEN + 3×float WDL); kompatibel mit lokalem Trainer. |
+| **M2: Clang-Tuning, RAM für TT** (§2.1, §6.1) | `scripts/build.sh` und CMake nutzen auf **Darwin arm64** `-mcpu=apple-m2`. TT über UCI `Hash` (MB); bei **8 GB RAM** empfohlen: erst messen, typisch **512–2048 MB**, nicht „maximal blind“ um Swap zu vermeiden. |
+| **NNUE: Quantisierung, SIMD/NEON, ClippedReLU** (§4.2) | Inferenz **int16**; Hidden-Layer **ClippedReLU** (Clip 32767). **NEON dot-products / inkrementelles HalfKP** = nächster Schritt (aktuell Full-Refresh 768-Plane). |
+| **Quiescence gegen Quiet-Trainings-Blindheit** (§8) | Quiescence sucht Schlagfolgen; deckt Gemini-Risiko „nur ruhige Daten“ teilweise ab. |
+| **RTX 3090 / RunPod ≤ 30 h** (§2.2, §6.2) | Nicht angebunden; wenn aktiv: `nnue-pytorch` (Stockfish) oder diesen Trainer mit großem Binpack + großer Batch-Size evaluieren. |
+| **Phasenplan** (§7) | Phase 0–2 teilweise da; Phase 1 Out-of-Core + echtes Quiet-Labeling offen; Phase 3–4 Cloud/Tuning offen. |
+
+Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
+
 ## Build (macOS, no CMake required)
 
 ```bash

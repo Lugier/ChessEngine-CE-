@@ -34,7 +34,9 @@ int NnueEvaluator::evaluate(const Board& b) const {
     int32_t sum = W_.b1[j];
     const int16_t* row = &W_.w1[j * NnueWeights::kInput];
     for (int i = 0; i < NnueWeights::kInput; ++i) sum += int32_t(row[i]) * feat[i];
+    // ClippedReLU (Gemini.md §4.2): stabil für int16-Quantisierung
     int32_t v = sum > 0 ? sum : 0;
+    if (v > 32767) v = 32767;
     hidden[j] = v;
   }
   int32_t out = W_.b2;

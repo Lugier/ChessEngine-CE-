@@ -9,11 +9,25 @@ Example line (WDL sum ~1.0):
 from __future__ import annotations
 
 import argparse
+import math
 import struct
 from pathlib import Path
 
 
-def parse_line(line: str) -> tuple[str, tuple[float, float, float]] | None:
+def cp_to_wdl(cp: float, scale: float = 400.0) -> tuple[float, float, float]:
+    """
+    Gemini.md (§5.2): Centipawns → glatter WDL-Raum statt roher MSE auf cp.
+    Zwei Logits Win/Loss um 0, Remis zentral — Softmax, Summe = 1.
+    """
+    z = cp / scale
+    a, b, c = z, 0.0, -z
+    m = max(a, b, c)
+    ea, eb, ec = math.exp(a - m), math.exp(b - m), math.exp(c - m)
+    s = ea + eb + ec
+    return ea / s, eb / s, ec / s
+
+
+def parse_line(line: str, cp_scale: float) -> tuple[str, tuple[float, float, float]] | None:
     line = line.strip()
     if not line or line.startswith("#"):
         return None
@@ -23,14 +37,8 @@ def parse_line(line: str) -> tuple[str, tuple[float, float, float]] | None:
         return fen, (float(w), float(d), float(l_))
     if len(parts) == 2:
         fen, cp = parts
-        # Map centipawns to crude WDL (toy; replace with sigmoid in production).
-        v = max(-1000, min(1000, float(cp))) / 1000.0
-        w = 0.5 + v * 0.25
-        d = 0.25
-        l_ = 1.0 - w - d
-        if l_ < 0:
-            l_ = 0.0
-            d = 1.0 - w
+        cpv = max(-2000.0, min(2000.0, float(cp)))
+        w, d, l_ = cp_to_wdl(cpv, scale=cp_scale)
         return fen, (w, d, l_)
     return None
 
@@ -39,11 +47,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("input_txt", type=Path)
     ap.add_argument("output_bin", type=Path)
+    ap.add_argument(
+        "--cp-scale",
+        type=float,
+        default=400.0,
+        help="cp→WDL Steilheit (Gemini: geglättete Sigmoid/Softmax-Kette)",
+    )
     args = ap.parse_args()
 
     rows: list[tuple[str, tuple[float, float, float]]] = []
     for line in args.input_txt.read_text().splitlines():
-        p = parse_line(line)
+        p = parse_line(line, cp_scale=args.cp_scale)
         if p:
             rows.append(p)
 
