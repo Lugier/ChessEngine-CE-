@@ -14,6 +14,9 @@ struct Board {
   int halfmove = 0;
   int fullmove = 1;
   uint64_t hash = 0;
+  /// Position hashes along the actual game line (UCI); used to seed repetition
+  /// detection in search. Not modified by internal search make/unmake.
+  std::vector<uint64_t> game_rep_keys;
 
   static constexpr uint8_t CASTLE_WK = 1, CASTLE_WQ = 2, CASTLE_BK = 4,
                            CASTLE_BQ = 8;
@@ -30,6 +33,9 @@ struct Board {
 
   bool is_attacked(Square s, Color by) const;
   bool in_check() const { return is_attacked(king_sq(side), ~side); }
+
+  /// FIDE-style automatic draw: no pawns/rooks/queens and K vs K or K vs single minor.
+  bool is_material_draw() const;
 
   void do_move(Move m, UndoInfo& u);
   void undo_move(Move m, const UndoInfo& u);

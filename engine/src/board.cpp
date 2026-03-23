@@ -14,6 +14,7 @@ void Board::clear() {
   halfmove = 0;
   fullmove = 1;
   hash = 0;
+  game_rep_keys.clear();
 }
 
 static Piece char_to_piece(char c) {
@@ -85,6 +86,8 @@ bool Board::set_fen(const std::string& fen) {
   h ^= ZOBRIST.castling[castling & 15];
   if (ep_square != SQ_NONE) h ^= ZOBRIST.ep[file_of(ep_square)];
   hash = h;
+  game_rep_keys.clear();
+  game_rep_keys.push_back(hash);
   return true;
 }
 
@@ -165,6 +168,53 @@ bool Board::is_attacked(Square s, Color by) const {
     if (pc == NO_PIECE || color_of(pc) != by) continue;
     if (attacks_from(pc, sq, occ) & square_bb(s)) return true;
   }
+  return false;
+}
+
+bool Board::is_material_draw() const {
+  int wp = 0, wn = 0, wb = 0, wr = 0, wq = 0;
+  int bp = 0, bn = 0, bb = 0, br = 0, bq = 0;
+  for (Square sq = SQ_A1; sq <= SQ_H8; sq = Square(int(sq) + 1)) {
+    switch (piece[sq]) {
+      case W_PAWN:
+        wp++;
+        break;
+      case W_KNIGHT:
+        wn++;
+        break;
+      case W_BISHOP:
+        wb++;
+        break;
+      case W_ROOK:
+        wr++;
+        break;
+      case W_QUEEN:
+        wq++;
+        break;
+      case B_PAWN:
+        bp++;
+        break;
+      case B_KNIGHT:
+        bn++;
+        break;
+      case B_BISHOP:
+        bb++;
+        break;
+      case B_ROOK:
+        br++;
+        break;
+      case B_QUEEN:
+        bq++;
+        break;
+      default:
+        break;
+    }
+  }
+  if (wp || bp || wr || br || wq || bq) return false;
+  int wm = wn + wb, bm = bn + bb;
+  if (wm == 0 && bm == 0) return true;
+  if (wm == 0 && bm == 1) return true;
+  if (bm == 0 && wm == 1) return true;
   return false;
 }
 

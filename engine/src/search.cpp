@@ -4,6 +4,7 @@
 #include "zobrist.hpp"
 #include <algorithm>
 #include <chrono>
+#include <vector>
 
 namespace cortex {
 
@@ -54,7 +55,17 @@ struct SearchCtx {
   int64_t nodes = 0;
   SearchLimits lim;
   std::chrono::steady_clock::time_point start;
+  std::vector<uint64_t> rep_stack;
 };
+
+static bool is_rule_draw(const Board& b, const std::vector<uint64_t>& rep) {
+  if (b.halfmove >= 100) return true;
+  if (b.is_material_draw()) return true;
+  int c = 0;
+  for (uint64_t k : rep)
+    if (k == b.hash) c++;
+  return c >= 3;
+}
 
 static bool time_up(const SearchCtx& c) {
   if (c.lim.movetime_ms <= 0) return false;
@@ -73,6 +84,8 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
   }
 
   Board& b = *ctx.board;
+  if (is_rule_draw(b, ctx.rep_stack)) return 0;
+
   int stand = evaluate_board(b);
   if (stand >= beta) return stand;
   if (stand > alpha) alpha = stand;
@@ -92,7 +105,9 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
     Move m = ml.moves[i];
     UndoInfo u;
     b.do_move(m, u);
+    ctx.rep_stack.push_back(b.hash);
     int sc = -qsearch(ctx, -beta, -alpha, ply + 1);
+    ctx.rep_stack.pop_back();
     b.undo_move(m, u);
     if (search_stopped()) return 0;
     if (sc >= beta) return sc;
@@ -112,6 +127,8 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
 
   Board& b = *ctx.board;
   bool in_check = b.in_check();
+
+  if (is_rule_draw(b, ctx.rep_stack)) return 0;
 
   if (depth <= 0 && !in_check) return qsearch(ctx, alpha, beta, ply);
 
@@ -178,6 +195,7 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
     bool capture = b.piece[m.to_sq()] != NO_PIECE || m.type() == MT_EN_PASSANT;
     UndoInfo u;
     b.do_move(m, u);
+    ctx.rep_stack.push_back(b.hash);
     int ext = in_check ? 1 : 0;
     int new_depth = depth - 1 + ext;
     int sc;
@@ -192,6 +210,7 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
       if (sc > alpha && sc < beta)
         sc = -negamax(ctx, new_depth, -beta, -alpha, ply + 1, true);
     }
+    ctx.rep_stack.pop_back();
     b.undo_move(m, u);
     moves_done++;
     if (search_stopped()) return 0;
@@ -218,6 +237,7 @@ Move search_bestmove(Board& b, const SearchLimits& lim, TranspositionTable& tt) 
   ctx.tt = &tt;
   ctx.lim = lim;
   ctx.start = std::chrono::steady_clock::now();
+  ctx.rep_stack = b.game_rep_keys;
 
   Movelist root;
   generate_legal(b, root);
@@ -234,7 +254,9 @@ Move search_bestmove(Board& b, const SearchLimits& lim, TranspositionTable& tt) 
       Move m = root.moves[i];
       UndoInfo u;
       b.do_move(m, u);
+      ctx.rep_stack.push_back(b.hash);
       int sc = -negamax(ctx, d - 1, -beta, -alpha, 1, true);
+      ctx.rep_stack.pop_back();
       b.undo_move(m, u);
       if (search_stopped()) goto done;
       if (sc > best_sc) {

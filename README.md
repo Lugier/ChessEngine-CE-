@@ -17,10 +17,23 @@ Die Strategie aus **Gemini.md** ist die Referenz für Architektur und Ressourcen
 | **M2: Clang-Tuning, RAM für TT** (§2.1, §6.1) | `scripts/build.sh` und CMake nutzen auf **Darwin arm64** `-mcpu=apple-m2`. TT über UCI `Hash` (MB); bei **8 GB RAM** empfohlen: erst messen, typisch **512–2048 MB**, nicht „maximal blind“ um Swap zu vermeiden. |
 | **NNUE: Quantisierung, SIMD/NEON, ClippedReLU** (§4.2) | Inferenz **int16**; Hidden-Layer **ClippedReLU** (Clip 32767). **NEON dot-products / inkrementelles HalfKP** = nächster Schritt (aktuell Full-Refresh 768-Plane). |
 | **Quiescence gegen Quiet-Trainings-Blindheit** (§8) | Quiescence sucht Schlagfolgen; deckt Gemini-Risiko „nur ruhige Daten“ teilweise ab. |
+| **50-Züge- & Dreifachwiederholung** (Suchbaum) | Ja: `halfmove ≥ 100` und ≥3× gleiche Zobrist-Position auf dem Pfad (inkl. UCI-Zugliste). |
 | **RTX 3090 / RunPod ≤ 30 h** (§2.2, §6.2) | Nicht angebunden; wenn aktiv: `nnue-pytorch` (Stockfish) oder diesen Trainer mit großem Binpack + großer Batch-Size evaluieren. |
 | **Phasenplan** (§7) | Phase 0–2 teilweise da; Phase 1 Out-of-Core + echtes Quiet-Labeling offen; Phase 3–4 Cloud/Tuning offen. |
 
 Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
+
+## Vollständigkeit (Engine-Regeln & UCI)
+
+| Bereich | Status |
+|---------|--------|
+| Zuggenerierung inkl. Rochade, EP, Promotion | vollständig |
+| Schachmatt / Patt | vollständig (0 bei Patt) |
+| **50-Züge-Regel** (`halfmove ≥ 100`) | in der Suche als Remis (0) |
+| **Dreifachwiederholung** (Zobrist-Position inkl. Zugrecht, Rochade, EP) | in der Suche; `game_rep_keys` wird aus UCI-`position … moves` aufgebaut |
+| **Materialremis** (KK, K vs KN, K vs KB) | ja; **nicht**: gleichfarbige Läufer KB vs KB (FIDE-Sonderfall) |
+| UCI: `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go` (depth/movetime/nodes), `stop`, `quit`, `ponderhit`, `debug` | implementiert |
+| Ponder-Zeit | nicht (Kommando wird ignoriert) |
 
 ## Build (macOS, no CMake required)
 
@@ -71,11 +84,13 @@ The sample lines in `data/sample_quiet.txt` are only for **offline smoke tests**
 | `trainer/` | PyTorch training + `CXN1` export |
 | `scripts/` | `build.sh` and future benchmarks |
 
-## Known limitations (v0)
+## Known limitations (roadmap)
 
-- NNUE architecture is a **deliberately small** dense 768-plane encoding for pipeline shakedown, not HalfKP/Stockfish-compatible training.
-- No repetition / 50-move draw detection in search yet.
-- RunPod / RTX training Dockerfile is intentionally omitted here; add it when you are ready to spend GPU budget.
+- NNUE: **768-Plane Full-Refresh**, kein HalfKP / kein inkrementelles Update / kein Stockfish-`nnue-pytorch`-Format.
+- Materialremis: kein Spezialfall **Läufer gleiche Feldfarbe** (KB vs KB).
+- **Ponder** (echtes Nachdenken im Gegenzug) nicht implementiert.
+- Großdaten-Lichess-Pipeline: Out-of-Core (DuckDB/Polars) bewusst **extern** — siehe Gemini §6.1; `prepare_binpack.py` ist das Binär-Ziel.
+- RunPod / RTX-Docker: optional, wenn GPU-Budget freigegeben wird.
 
 ## License
 

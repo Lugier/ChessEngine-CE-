@@ -82,6 +82,7 @@ static bool parse_position(Board& b, std::istringstream& is) {
         if (!mv) continue;
         UndoInfo u;
         b.do_move(mv, u);
+        b.game_rep_keys.push_back(b.hash);
       }
     }
     return true;
@@ -96,6 +97,7 @@ static bool parse_position(Board& b, std::istringstream& is) {
       if (!mv) continue;
       UndoInfo u;
       b.do_move(mv, u);
+      b.game_rep_keys.push_back(b.hash);
     }
   }
   return true;
@@ -159,6 +161,8 @@ void uci_loop() {
       std::cout << "bestmove " << move_to_uci(m) << "\n" << std::flush;
     } else if (cmd == "stop") {
       search_set_stop(true);
+    } else if (cmd == "ponderhit" || cmd == "debug") {
+      // no-op; keeps GUIs / tournament tools happy
     } else if (cmd == "quit")
       break;
   }
