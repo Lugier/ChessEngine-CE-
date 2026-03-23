@@ -10,7 +10,7 @@ Local-first project layout aligned with the autonomous build plan: C++ UCI engin
 |------|----------------|
 | Unbeschränkte Weltspitze (Stockfish, Lc0) | **Nicht** das Projekt-Setup; dafür braucht es u. a. HalfKP/NNUE-Ökosystem, 100M+ quiet gelabelte Stellungen, Monate Tuning. |
 | **Bestes unter gleichen Grenzen** | Machbar durch: großes **Lichess/SF-Eval**-Set, **Quiet-Filter**, Training auf der 3090 (oder `nnue-pytorch`), größere TT, Texel-/Scaling-Tuning, Matches (SPRT). |
-| Dieses Repo | Solide **Alpha–Beta+NNUE-Pipeline** mit **Killer-, History-Heuristik** und **Aspiration** an der Wurzel — Basis für oben genannte Skalierung. |
+| Dieses Repo | Solide **Alpha–Beta+NNUE-Pipeline** mit **SEE** (Quiescence), **Killer/History**, **Aspiration**, **PVS** — Basis für oben genannte Skalierung (Daten + GPU-Training + SPRT). |
 
 Behauptungen wie „besser als alles andere“ ohne Messung (Elo, SPRT) sind wissenschaftlich nicht haltbar; **Messung** ist der nächste Schritt nach Daten+Netz.
 
@@ -21,7 +21,7 @@ Die Strategie aus **Gemini.md** ist die Referenz für Architektur und Ressourcen
 | Gemini-Vorgabe | Umsetzung / Status |
 |----------------|-------------------|
 | **Constraint-first**, kein AlphaZero/MCTS/Lc0, keine Searchless-Transformer, kein LLM/MLX als Engine | Bewusst nicht implementiert; README und Code bleiben bei Alpha–Beta + kleinem NNUE. |
-| **Hybrid: C++ Alpha–Beta + NNUE**, taktisch Suche, positionell Netz | Ja: **PVS** (inkl. Wurzel), **TT**, **Nullmove**, **LMR**, **Quiescence**, **Killer + History**, **Aspiration** ab Tiefe 4; optional `cortex.nnue` + klassische Eval gemischt. |
+| **Hybrid: C++ Alpha–Beta + NNUE**, taktisch Suche, positionell Netz | Ja: **PVS** (inkl. Wurzel), **TT**, **Nullmove**, **LMR**, **Quiescence** mit **SEE**-Ordnung der Schläge, **Killer + History**, **Aspiration** ab Tiefe 4; optional `cortex.nnue` + klassische Eval gemischt. |
 | **Training: Distillation** aus fremd evaluierten Daten, **kein** Self-Play-RL | Trainer ist Supervised Learning auf (FEN → WDL); kein MCTS/RL. |
 | **WDL statt roher cp-MSE** (§5.2) | `data/prepare_binpack.py`: Centipawns → **Softmax-WDL** über Logits \((cp/s, 0, -cp/s)\), `--cp-scale` steuerbar. |
 | **Quiet positions** filtern (§5.2) | Out-of-Core-Pipeline (DuckDB/Polars) für große Lichess-Exports ist **noch** anzubinden; `sample_quiet.txt` nur Rauchtest. |

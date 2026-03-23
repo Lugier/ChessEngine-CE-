@@ -8,7 +8,7 @@ cd "$ROOT/engine"
 SOURCES=(
   src/main.cpp src/bitboard.cpp src/zobrist.cpp src/board.cpp
   src/movegen.cpp src/eval_classic.cpp src/tt.cpp src/search.cpp
-  src/nnue.cpp src/uci.cpp
+  src/see.cpp src/nnue.cpp src/uci.cpp
 )
 
 do_compile() {

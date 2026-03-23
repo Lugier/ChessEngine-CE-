@@ -1,6 +1,7 @@
 #include "search.hpp"
 #include "eval_classic.hpp"
 #include "nnue.hpp"
+#include "see.hpp"
 #include "zobrist.hpp"
 #include <algorithm>
 #include <chrono>
@@ -118,8 +119,10 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
   noisy_moves(b, ml);
   int scores[256];
   Move no_tt{};
-  for (int i = 0; i < ml.count; ++i)
-    scores[i] = move_order_score(ctx, b, ml.moves[i], no_tt, ply);
+  for (int i = 0; i < ml.count; ++i) {
+    int see = static_exchange_eval(b, ml.moves[i]);
+    scores[i] = see * 500'000 + move_order_score(ctx, b, ml.moves[i], no_tt, ply);
+  }
   for (int a = 0; a < ml.count; ++a)
     for (int j = a + 1; j < ml.count; ++j)
       if (scores[j] > scores[a]) {

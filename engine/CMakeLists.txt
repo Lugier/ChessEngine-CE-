@@ -17,6 +17,7 @@ add_executable(cortex
   src/eval_classic.cpp
   src/tt.cpp
   src/search.cpp
+  src/see.cpp
   src/nnue.cpp
   src/uci.cpp
 )
