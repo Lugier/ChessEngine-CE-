@@ -51,6 +51,14 @@ if ! python3 -m py_compile "$ROOT/data/prepare_binpack.py" "$ROOT/trainer/train_
 fi
 echo "OK Python syntax"
 
+# Suche muss auch ohne NNUE-Datei laufen (klassische Eval)
+if ! printf 'uci\nisready\nsetoption name UseNNUE value false\nposition startpos\ngo depth 3\nquit\n' |
+  "$EXE" | grep -q bestmove; then
+  echo "FAIL UCI go depth 3 (classic eval, NNUE off)" >&2
+  exit 1
+fi
+echo "OK UCI search (classic eval)"
+
 if [[ "${SKIP_TRAINER:-}" == "1" ]]; then
   echo "SKIP trainer (SKIP_TRAINER=1)"
   echo "=== VERIFY OK (ohne Trainer) ==="

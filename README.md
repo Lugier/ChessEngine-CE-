@@ -44,7 +44,7 @@ Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
 
 Produces `engine/cortex`. Mit CMake: `cmake -S engine -B engine/build && cmake --build engine/build` — Apple‑arm64 nutzt `-mcpu=apple-m2` nur wenn der Compiler es kann, sonst `-march=native` (wie `scripts/build.sh`).
 
-**Verifikation (empfohlen vor jedem Push):** `./scripts/verify.sh` prüft Build (mit **Fallback** `-march=native`, falls `-mcpu=apple-m2` nicht geht), **Perft 1–5**, UCI, `prepare_binpack`, Python-Syntax und optional den Trainer.
+**Verifikation (vor jedem Commit/Push ausführen):** `./scripts/verify.sh` prüft Build (mit **Fallback** `-march=native`, falls `-mcpu=apple-m2` nicht geht), **Perft 1–5**, UCI, **Suche mit klassischer Eval (UseNNUE off)**, `prepare_binpack`, Python-Syntax und optional den Trainer.
 
 ```bash
 chmod +x scripts/verify.sh scripts/build.sh scripts/smoke.sh  # falls nötig
