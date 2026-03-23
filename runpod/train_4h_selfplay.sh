@@ -82,8 +82,8 @@ echo "[stage] pgn -> selfplay binpack" | tee -a "$LOG"
   --max-positions "$SELFPLAY_POSITIONS" | tee -a "$LOG"
 
 echo "[stage] 4h finetune" | tee -a "$LOG"
-# GNU timeout on some images rejects "3h55m"; seconds are portable (default ~3h55m).
-FINETUNE_TIMEOUT_SEC="${FINETUNE_TIMEOUT_SEC:-14100}"
+# GNU timeout on some images rejects "3h55m"; seconds are portable (default 6h).
+FINETUNE_TIMEOUT_SEC="${FINETUNE_TIMEOUT_SEC:-21600}"
 timeout "$FINETUNE_TIMEOUT_SEC" "$PY" -u "$ROOT/trainer/train_nnue.py" \
   --data "$TRAIN_BIN" \
   --val-data "$VAL_BIN" \
