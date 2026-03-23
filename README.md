@@ -20,6 +20,7 @@ Die Strategie aus **Gemini.md** ist die Referenz für Architektur und Ressourcen
 | **50-Züge- & Dreifachwiederholung** (Suchbaum) | Ja: `halfmove ≥ 100` und ≥3× gleiche Zobrist-Position auf dem Pfad (inkl. UCI-Zugliste). |
 | **RTX 3090 / RunPod ≤ 30 h** (§2.2, §6.2) | Nicht angebunden; wenn aktiv: `nnue-pytorch` (Stockfish) oder diesen Trainer mit großem Binpack + großer Batch-Size evaluieren. |
 | **Phasenplan** (§7) | Phase 0–2 teilweise da; Phase 1 Out-of-Core + echtes Quiet-Labeling offen; Phase 3–4 Cloud/Tuning offen. |
+| **Qualitätssicherung** | `./scripts/verify.sh` (lokal) + GitHub Actions `ci.yml` (Ubuntu, ohne Trainer) — vor Merge ausführen. |
 
 Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
 
@@ -41,17 +42,19 @@ Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
 ./scripts/build.sh
 ```
 
-Produces `engine/cortex`. With CMake installed, you can also use `engine/CMakeLists.txt`.
+Produces `engine/cortex`. Mit CMake: `cmake -S engine -B engine/build && cmake --build engine/build` — Apple‑arm64 nutzt `-mcpu=apple-m2` nur wenn der Compiler es kann, sonst `-march=native` (wie `scripts/build.sh`).
 
-**Alles auf einmal prüfen** (Build, Perft, UCI, `prepare_binpack`, Trainer, UCI mit Netz — legt bei Bedarf `trainer/.venv` an und führt `pip install` aus, einmalig mit Internet):
+**Verifikation (empfohlen vor jedem Push):** `./scripts/verify.sh` prüft Build (mit **Fallback** `-march=native`, falls `-mcpu=apple-m2` nicht geht), **Perft 1–5**, UCI, `prepare_binpack`, Python-Syntax und optional den Trainer.
 
 ```bash
-chmod +x scripts/smoke.sh   # falls nötig
-./scripts/smoke.sh
+chmod +x scripts/verify.sh scripts/build.sh scripts/smoke.sh  # falls nötig
+./scripts/verify.sh                    # inkl. Trainer (pip/Torch einmalig mit Netz)
+SKIP_TRAINER=1 ./scripts/verify.sh    # schnell: ohne Torch
+make verify                           # gleich wie verify.sh
+./scripts/smoke.sh                    # Alias → verify.sh
 ```
 
-Ohne Trainer (kein pip): `SKIP_TRAINER=1 ./scripts/smoke.sh`  
-Alternativ: `make smoke` (nutzt dasselbe Skript).
+CI (GitHub Actions): `.github/workflows/ci.yml` läuft `verify` mit `SKIP_TRAINER=1` auf Ubuntu.
 
 ## Quick checks
 

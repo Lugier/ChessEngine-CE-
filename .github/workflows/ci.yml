@@ -1,0 +1,20 @@
+# Ohne GPU/RunPod: Build + Perft + UCI + Dataprep (Trainer übersprungen).
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Verify (no trainer / no torch download)
+        env:
+          SKIP_TRAINER: "1"
+          CXX: clang++
+        run: chmod +x scripts/*.sh && ./scripts/verify.sh

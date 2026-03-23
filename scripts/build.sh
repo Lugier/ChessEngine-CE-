@@ -1,16 +1,33 @@
 #!/usr/bin/env bash
+# Gemini.md §6.1: bevorzugt Apple-Silicon-Tuning; Fallback ohne Fehler auf -march=native.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/engine"
 : "${CXX:=clang++}"
-# Gemini.md §6.1: Clang für Apple Silicon gezielt tunen (8 GB UMA, NPS).
-CPU_FLAGS=(-march=native)
-if [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]]; then
-  CPU_FLAGS=(-mcpu=apple-m2)
-fi
-"$CXX" -std=c++17 -O3 "${CPU_FLAGS[@]}" -Wall -Wextra -Wpedantic \
-  -I include -o cortex \
-  src/main.cpp src/bitboard.cpp src/zobrist.cpp src/board.cpp \
-  src/movegen.cpp src/eval_classic.cpp src/tt.cpp src/search.cpp \
+
+SOURCES=(
+  src/main.cpp src/bitboard.cpp src/zobrist.cpp src/board.cpp
+  src/movegen.cpp src/eval_classic.cpp src/tt.cpp src/search.cpp
   src/nnue.cpp src/uci.cpp
-echo "Built $ROOT/engine/cortex"
+)
+
+do_compile() {
+  local -a flags=("$@")
+  "$CXX" -std=c++17 -O3 "${flags[@]}" -Wall -Wextra -Wpedantic \
+    -I include -o cortex "${SOURCES[@]}"
+}
+
+if [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]]; then
+  if do_compile -mcpu=apple-m2; then
+    echo "Built (flags: -mcpu=apple-m2)"
+  elif do_compile -march=native; then
+    echo "Built (fallback: -march=native; kein apple-m2-Tuning auf diesem Rechner)"
+  else
+    exit 1
+  fi
+else
+  do_compile -march=native
+  echo "Built (flags: -march=native)"
+fi
+
+echo "Binary: $ROOT/engine/cortex"

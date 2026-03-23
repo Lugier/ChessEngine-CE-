@@ -1,14 +1,18 @@
-.PHONY: build smoke perft uci
+.PHONY: build verify smoke perft uci
 
 build:
 	./scripts/build.sh
+
+# Strikte Checks: Perft 1–5, UCI, Dataprep, Python-Syntax, optional Trainer
+verify:
+	./scripts/verify.sh
+
+# Alias zu verify (Trainer läuft standardmäßig; ohne: SKIP_TRAINER=1 make smoke)
+smoke:
+	./scripts/smoke.sh
 
 perft: build
 	./engine/cortex perft 5
 
 uci: build
 	printf 'uci\nisready\nquit\n' | ./engine/cortex
-
-# Vollpipeline inkl. Trainer (legt ggf. trainer/.venv an, pip install)
-smoke:
-	./scripts/smoke.sh

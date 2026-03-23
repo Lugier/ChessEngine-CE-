@@ -27,9 +27,15 @@ target_compile_options(cortex PRIVATE
   $<$<CXX_COMPILER_ID:GNU>:-Wall -Wextra -Wpedantic>
 )
 
-# Gemini.md §6.1: Apple Silicon → -mcpu=apple-m2; sonst -march=native
+# Gemini.md §6.1 + Fallback wie scripts/build.sh
+include(CheckCXXCompilerFlag)
 if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
-  target_compile_options(cortex PRIVATE -mcpu=apple-m2)
+  check_cxx_compiler_flag("-mcpu=apple-m2" CORTEX_HAS_APPLE_M2)
+  if(CORTEX_HAS_APPLE_M2)
+    target_compile_options(cortex PRIVATE -mcpu=apple-m2)
+  else()
+    target_compile_options(cortex PRIVATE -march=native)
+  endif()
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
   target_compile_options(cortex PRIVATE -march=native)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
