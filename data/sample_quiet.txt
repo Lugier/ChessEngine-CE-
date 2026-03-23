@@ -1,0 +1,4 @@
+# Synthetic quiet positions for offline smoke tests (no download).
+rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | 0.33 | 0.34 | 0.33
+rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1 | 0.32 | 0.35 | 0.33
+rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2 | 0.34 | 0.33 | 0.33

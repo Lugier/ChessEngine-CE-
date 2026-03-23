@@ -1,0 +1,16 @@
+build/
+.cache/
+*.o
+*.a
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+venv/
+trainer/.venv/
+data/raw/
+data/processed/*.binpack
+trainer/checkpoints/
+trainer/wandb/
+*.nnue
+engine/cortex
