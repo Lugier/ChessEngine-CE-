@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Volle Verifikation: Build, Perft-Stufen, UCI, Python-Dataprep, optional Trainer.
-# Exit-Code != 0 bei jedem Fehler (für CI / lokale Kontrolle).
+# Gatekeeper: ensures the repo stays shippable. Fails fast on any step.
+# 1) Native build (scripts/build.sh)  2) Perft 1..5 from startpos
+# 3) UCI smoke  4) prepare_binpack on sample data  5) py_compile
+# 6) UCI go with classic eval (UseNNUE false)  7) unless SKIP_TRAINER=1:
+#    venv+torch, train_nnue on verify.binpack, export cortex.nnue, UCI go with net.
+# See docs/ENGINE.md for what this does / does not prove about search quality.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -37,6 +41,11 @@ if ! printf 'uci\nisready\nposition startpos moves e2e4 e7e5\nposition startpos 
   echo "FAIL UCI position replay" >&2
   exit 1
 fi
+if ! printf 'uci\nisready\nposition fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 moves e2e4\ngo depth 2\nquit\n' |
+  "$EXE" | grep -q bestmove; then
+  echo "FAIL UCI position fen + go" >&2
+  exit 1
+fi
 echo "OK UCI position commands"
 
 mkdir -p "$ROOT/data/processed"
@@ -58,6 +67,20 @@ if ! printf 'uci\nisready\nsetoption name UseNNUE value false\nposition startpos
   exit 1
 fi
 echo "OK UCI search (classic eval)"
+
+if [[ -n "${LARGE_NET_FILE:-}" && -f "${LARGE_NET_FILE}" ]]; then
+  if ! printf "uci\nisready\nsetoption name EvalFile value ${LARGE_NET_FILE}\nsetoption name UseNNUE value true\nposition startpos\ngo depth 3\nquit\n" |
+    "$EXE" | grep -q bestmove; then
+    echo "FAIL UCI go with LARGE_NET_FILE=${LARGE_NET_FILE}" >&2
+    exit 1
+  fi
+  echo "OK UCI search (large-net smoke)"
+fi
+
+if [[ "${RUN_BENCH:-0}" == "1" ]]; then
+  "$ROOT/scripts/bench_strength.sh" 8 >/dev/null
+  echo "OK benchmark snapshot"
+fi
 
 if [[ "${SKIP_TRAINER:-}" == "1" ]]; then
   echo "SKIP trainer (SKIP_TRAINER=1)"

@@ -1,3 +1,5 @@
+// Iterative deepening at root; PVS negamax with TT, null move, LMR, quiescence.
+// Draws: 50-move, material, repetition along rep_stack. See docs/ENGINE.md.
 #pragma once
 
 #include "board.hpp"

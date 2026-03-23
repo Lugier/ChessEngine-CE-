@@ -1,3 +1,4 @@
+// Piece moves + legality filter (king not left in check).
 #include "movegen.hpp"
 #include "bitboard.hpp"
 

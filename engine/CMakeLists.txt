@@ -19,6 +19,7 @@ add_executable(cortex
   src/search.cpp
   src/see.cpp
   src/nnue.cpp
+  src/nnue_neon.cpp
   src/uci.cpp
 )
 

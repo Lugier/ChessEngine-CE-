@@ -1,3 +1,4 @@
+// Power-of-two bucket TT; replace-by-depth store policy in store().
 #include "tt.hpp"
 
 namespace cortex {

@@ -1,4 +1,4 @@
-.PHONY: build verify smoke perft uci
+.PHONY: build verify smoke perft uci bench sprt
 
 build:
 	./scripts/build.sh
@@ -16,3 +16,9 @@ perft: build
 
 uci: build
 	printf 'uci\nisready\nquit\n' | ./engine/cortex
+
+bench: build
+	./scripts/bench_strength.sh
+
+sprt: build
+	./scripts/sprt.sh

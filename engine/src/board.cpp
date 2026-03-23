@@ -1,3 +1,4 @@
+// Board state: FEN I/O, do/undo, Zobrist; game_rep_keys for repetition seed.
 #include "board.hpp"
 #include "bitboard.hpp"
 #include "zobrist.hpp"

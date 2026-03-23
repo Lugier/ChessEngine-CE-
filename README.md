@@ -1,112 +1,154 @@
-# Cortex — constraint-first chess engine (Alpha–Beta + NNUE)
+# Cortex Chess Engine
 
-Local-first project layout aligned with the autonomous build plan: C++ UCI engine, classic eval fallback, compact NNUE (768→256→scalar export), Python dataprep and PyTorch trainer for Apple Silicon (MPS) or CPU.
+Constraint-first UCI chess engine built for practical strength on limited hardware.
 
-## „SOTA“ realistisch einordnen (Gemini-Constraints)
+Cortex combines a modern alpha-beta search stack with optional NNUE evaluation and a reproducible data/training pipeline. The repository is designed for Apple Silicon development (M2, 8 GB RAM) and optional cloud training windows (for example, 30h on RTX 3090).
 
-**Constraint-SOTA** hier meint: *so stark wie möglich* bei **8 GB RAM**, **CPU-Suche**, **≤ 30 h GPU-Training** und **Distillation** — nicht „stärker als Stockfish 17“.
+## Executive Summary
 
-| Ziel | Einschätzung |
-|------|----------------|
-| Unbeschränkte Weltspitze (Stockfish, Lc0) | **Nicht** das Projekt-Setup; dafür braucht es u. a. HalfKP/NNUE-Ökosystem, 100M+ quiet gelabelte Stellungen, Monate Tuning. |
-| **Bestes unter gleichen Grenzen** | Machbar durch: großes **Lichess/SF-Eval**-Set, **Quiet-Filter**, Training auf der 3090 (oder `nnue-pytorch`), größere TT, Texel-/Scaling-Tuning, Matches (SPRT). |
-| Dieses Repo | Solide **Alpha–Beta+NNUE-Pipeline** mit **SEE** (Quiescence), **Killer/History**, **Aspiration**, **PVS** — Basis für oben genannte Skalierung (Daten + GPU-Training + SPRT). |
+- **What it is:** A production-style UCI engine with legal move generation, transposition table, search heuristics, and optional neural evaluation.
+- **Why it exists:** Maximize Elo per resource unit under tight memory and compute constraints.
+- **Current state:** End-to-end functional locally (build, verify, train, load net, search).
+- **What it is not:** A claim of world #1 strength without formal match evidence (SPRT/Elo).
 
-Behauptungen wie „besser als alles andere“ ohne Messung (Elo, SPRT) sind wissenschaftlich nicht haltbar; **Messung** ist der nächste Schritt nach Daten+Netz.
+## Key Capabilities
 
-## Abgleich mit `Gemini.md`
+| Area | Implementation |
+|---|---|
+| Core engine | Bitboards, legal move generation, FEN, Zobrist hashing, UCI protocol |
+| Search | PVS, transposition table, null-move pruning, LMR, quiescence, SEE ordering, killer/history, aspiration |
+| Rules in search | 50-move rule, repetition handling, simplified insufficient-material detection |
+| Evaluation | Classical handcrafted evaluation + optional NNUE blend |
+| NNUE formats | `CXN1` (legacy 768 features), `CXN2` (kingbucket / halfkp-like feature space) |
+| SIMD | ARM64 NEON dot-product path with portable fallback |
+| Data pipeline | Text/binpack conversion + out-of-core Lichess parquet quiet filtering |
+| Training | PyTorch trainer with checkpoints/resume, val support, `CXN1`/`CXN2` export |
+| Operations | RunPod scripts for 30h training flow, resume, and artifact handoff |
+| Verification | One-command repo gate: build, perft, UCI smoke, dataprep, trainer smoke |
 
-Die Strategie aus **Gemini.md** ist die Referenz für Architektur und Ressourcen. Stand dieses Repos:
+## Architecture at a Glance
 
-| Gemini-Vorgabe | Umsetzung / Status |
-|----------------|-------------------|
-| **Constraint-first**, kein AlphaZero/MCTS/Lc0, keine Searchless-Transformer, kein LLM/MLX als Engine | Bewusst nicht implementiert; README und Code bleiben bei Alpha–Beta + kleinem NNUE. |
-| **Hybrid: C++ Alpha–Beta + NNUE**, taktisch Suche, positionell Netz | Ja: **PVS** (inkl. Wurzel), **TT**, **Nullmove**, **LMR**, **Quiescence** mit **SEE**-Ordnung der Schläge, **Killer + History**, **Aspiration** ab Tiefe 4; optional `cortex.nnue` + klassische Eval gemischt. |
-| **Training: Distillation** aus fremd evaluierten Daten, **kein** Self-Play-RL | Trainer ist Supervised Learning auf (FEN → WDL); kein MCTS/RL. |
-| **WDL statt roher cp-MSE** (§5.2) | `data/prepare_binpack.py`: Centipawns → **Softmax-WDL** über Logits \((cp/s, 0, -cp/s)\), `--cp-scale` steuerbar. |
-| **Quiet positions** filtern (§5.2) | Out-of-Core-Pipeline (DuckDB/Polars) für große Lichess-Exports ist **noch** anzubinden; `sample_quiet.txt` nur Rauchtest. |
-| **Binärformat statt Massen-FEN auf GPU** (§5.2) | Einfaches `.binpack` (Count + FEN + 3×float WDL); kompatibel mit lokalem Trainer. |
-| **M2: Clang-Tuning, RAM für TT** (§2.1, §6.1) | `scripts/build.sh` und CMake nutzen auf **Darwin arm64** `-mcpu=apple-m2`. TT über UCI `Hash` (MB); bei **8 GB RAM** empfohlen: erst messen, typisch **512–2048 MB**, nicht „maximal blind“ um Swap zu vermeiden. |
-| **NNUE: Quantisierung, SIMD/NEON, ClippedReLU** (§4.2) | Inferenz **int16**; Hidden-Layer **ClippedReLU** (Clip 32767). **NEON dot-products / inkrementelles HalfKP** = nächster Schritt (aktuell Full-Refresh 768-Plane). |
-| **Quiescence gegen Quiet-Trainings-Blindheit** (§8) | Quiescence sucht Schlagfolgen; deckt Gemini-Risiko „nur ruhige Daten“ teilweise ab. |
-| **50-Züge- & Dreifachwiederholung** (Suchbaum) | Ja: `halfmove ≥ 100` und ≥3× gleiche Zobrist-Position auf dem Pfad (inkl. UCI-Zugliste). |
-| **RTX 3090 / RunPod ≤ 30 h** (§2.2, §6.2) | Nicht angebunden; wenn aktiv: `nnue-pytorch` (Stockfish) oder diesen Trainer mit großem Binpack + großer Batch-Size evaluieren. |
-| **Phasenplan** (§7) | Phase 0–2 teilweise da; Phase 1 Out-of-Core + echtes Quiet-Labeling offen; Phase 3–4 Cloud/Tuning offen. |
-| **Qualitätssicherung** | `./scripts/verify.sh` (lokal) + GitHub Actions `ci.yml` (Ubuntu, ohne Trainer) — vor Merge ausführen. |
+1. **UCI input** enters the engine.
+2. **Search** explores candidate lines using alpha-beta/PVS and pruning heuristics.
+3. **Evaluation** scores positions using classical eval and optional NNUE blend.
+4. **Best move** is returned as UCI output.
+5. **Training loop** (offline): dataset -> binpack -> train -> export `cortex.nnue` -> reload in engine.
 
-Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
+Detailed technical mapping: [`docs/ENGINE.md`](docs/ENGINE.md)
 
-## Vollständigkeit (Engine-Regeln & UCI)
+## Verified Baseline
 
-| Bereich | Status |
-|---------|--------|
-| Zuggenerierung inkl. Rochade, EP, Promotion | vollständig |
-| Schachmatt / Patt | vollständig (0 bei Patt) |
-| **50-Züge-Regel** (`halfmove ≥ 100`) | in der Suche als Remis (0) |
-| **Dreifachwiederholung** (Zobrist-Position inkl. Zugrecht, Rochade, EP) | in der Suche; `game_rep_keys` wird aus UCI-`position … moves` aufgebaut |
-| **Materialremis** (KK, K vs KN, K vs KB) | ja; **nicht**: gleichfarbige Läufer KB vs KB (FIDE-Sonderfall) |
-| UCI: `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go` (depth/movetime/nodes), `stop`, `quit`, `ponderhit`, `debug` | implementiert |
-| Ponder-Zeit | nicht (Kommando wird ignoriert) |
+Run this before commits, PRs, or cloud spend:
 
-## Build (macOS, no CMake required)
+```bash
+./scripts/verify.sh
+```
+
+What it validates:
+
+- native build
+- perft 1..5 from start position
+- UCI handshake and command handling
+- dataprep script behavior
+- Python syntax checks
+- search smoke test (classical mode)
+- optional trainer smoke test + net export + NNUE search smoke
+
+Fast mode without trainer:
+
+```bash
+SKIP_TRAINER=1 ./scripts/verify.sh
+```
+
+## Local Quickstart
 
 ```bash
 ./scripts/build.sh
-```
-
-Produces `engine/cortex`. Mit CMake: `cmake -S engine -B engine/build && cmake --build engine/build` — Apple‑arm64 nutzt `-mcpu=apple-m2` nur wenn der Compiler es kann, sonst `-march=native` (wie `scripts/build.sh`).
-
-**Verifikation (vor jedem Commit/Push ausführen):** `./scripts/verify.sh` prüft Build (mit **Fallback** `-march=native`, falls `-mcpu=apple-m2` nicht geht), **Perft 1–5**, UCI, **Suche mit klassischer Eval (UseNNUE off)**, `prepare_binpack`, Python-Syntax und optional den Trainer.
-
-```bash
-chmod +x scripts/verify.sh scripts/build.sh scripts/smoke.sh  # falls nötig
-./scripts/verify.sh                    # inkl. Trainer (pip/Torch einmalig mit Netz)
-SKIP_TRAINER=1 ./scripts/verify.sh    # schnell: ohne Torch
-make verify                           # gleich wie verify.sh
-./scripts/smoke.sh                    # Alias → verify.sh
-```
-
-CI (GitHub Actions): `.github/workflows/ci.yml` läuft `verify` mit `SKIP_TRAINER=1` auf Ubuntu.
-
-## Quick checks
-
-```bash
-./engine/cortex perft 5    # expect 4865609 from the initial position
+./engine/cortex perft 5
 printf 'uci\nisready\nposition startpos\ngo depth 6\nquit\n' | ./engine/cortex
 ```
 
-## NNUE file (`cortex.nnue`)
+## Data and Training
 
-Binary format `CXN1` (see `engine/src/nnue.cpp`): int16 weights for a full refresh evaluator (768 sparse piece–square features, 256 ReLU, scalar out). The engine blends NNUE with the hand-crafted eval when a net is loaded.
-
-Train and export into `engine/` (uses a project venv):
+### Minimal smoke training (local)
 
 ```bash
 python3 -m venv trainer/.venv
 trainer/.venv/bin/pip install -r trainer/requirements.txt
 python3 data/prepare_binpack.py data/sample_quiet.txt data/processed/sample.binpack
-trainer/.venv/bin/python trainer/train_nnue.py --data data/processed/sample.binpack --out engine/cortex.nnue
+trainer/.venv/bin/python trainer/train_nnue.py \
+  --data data/processed/sample.binpack \
+  --out engine/cortex.nnue
 ```
 
-The sample lines in `data/sample_quiet.txt` are only for **offline smoke tests**. For real strength, replace this with a filtered Lichess (or similar) Stockfish-eval set and map centipawns → WDL in `data/prepare_binpack.py`.
+### Large-scale out-of-core prep (Lichess parquet)
 
-## Directories
+```bash
+python3 -m venv data/.venv
+data/.venv/bin/pip install -r data/requirements.txt
+data/.venv/bin/python data/prepare_lichess_quiet.py \
+  --parquet /path/to/lichess-evals.parquet \
+  --train-out data/processed/train.binpack \
+  --val-out data/processed/val.binpack \
+  --summary-out data/processed/summary.json
+```
 
-| Path | Role |
-|------|------|
-| `engine/` | C++ engine: bitboards, legal movegen, PVS search, TT, null move, LMR, quiescence, UCI |
-| `data/` | Dataset prep scripts; keep large binaries under `data/raw/` or `data/processed/` (gitignored) |
-| `trainer/` | PyTorch training + `CXN1` export |
-| `scripts/` | `build.sh` and future benchmarks |
+## RunPod 30h Standard Flow
 
-## Known limitations (roadmap)
+```bash
+# inside your cloud environment with data available:
+./runpod/train_30h.sh
 
-- NNUE: **768-Plane Full-Refresh**, kein HalfKP / kein inkrementelles Update / kein Stockfish-`nnue-pytorch`-Format.
-- Materialremis: kein Spezialfall **Läufer gleiche Feldfarbe** (KB vs KB).
-- **Ponder** (echtes Nachdenken im Gegenzug) nicht implementiert.
-- Großdaten-Lichess-Pipeline: Out-of-Core (DuckDB/Polars) bewusst **extern** — siehe Gemini §6.1; `prepare_binpack.py` ist das Binär-Ziel.
-- RunPod / RTX-Docker: optional, wenn GPU-Budget freigegeben wird.
+# resume from latest checkpoint if interrupted:
+./runpod/resume_30h.sh
+```
+
+After training:
+
+```bash
+LARGE_NET_FILE=engine/cortex.nnue ./scripts/verify.sh
+```
+
+## Strength Evaluation Workflow
+
+Use match scripts to compare baseline vs candidate nets:
+
+```bash
+./scripts/sprt.sh
+```
+
+For practical use:
+
+- ensure `cutechess-cli` is installed
+- provide explicit net paths for baseline/candidate as needed
+- run sufficient games for stable decisions
+
+## Current Constraints and Realistic Positioning
+
+This project is engineered for high efficiency under constrained hardware, not for unsupported marketing claims.
+
+- Stronger than sample baseline: realistic with quality data and measured tuning.
+- Better than top global engines: not a valid claim without large-scale training infrastructure and formal benchmarks.
+
+## Repository Structure
+
+| Path | Purpose |
+|---|---|
+| `engine/` | C++ engine code |
+| `data/` | dataprep scripts (`prepare_binpack.py`, `prepare_lichess_quiet.py`) |
+| `trainer/` | PyTorch training and NNUE export |
+| `runpod/` | cloud training scripts and container setup |
+| `scripts/` | verify, benchmark, match, SPRT helpers |
+| `docs/` | technical design and Gemini alignment |
+| `Gemini.md` | strategy brief and constraints |
+
+## Roadmap
+
+- Expand and harden large-scale dataset quality controls
+- Complete full halfkp-style incremental path for non-legacy mode
+- Improve match automation and statistical gating for promotion decisions
+- Continue CPU-side optimization based on measured profiling data
 
 ## License
 
-Add a license if you redistribute; default is all rights reserved until you choose one.
+No explicit project license is currently declared. Add a license before redistribution.

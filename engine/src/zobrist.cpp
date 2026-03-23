@@ -1,3 +1,4 @@
+// Fixed-seed Zobrist keys; call init_zobrist() before any board hash use.
 #include "zobrist.hpp"
 #include <random>
 

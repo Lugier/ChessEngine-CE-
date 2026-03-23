@@ -1,3 +1,4 @@
+// Static exchange eval on capture square; used to order quiescence captures.
 #include "see.hpp"
 #include "movegen.hpp"
 

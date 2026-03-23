@@ -1,14 +1,22 @@
+// UCI adapter: position/go map to Board + search; NNUE path from disk.
 #include "uci.hpp"
 #include "board.hpp"
 #include "movegen.hpp"
 #include "nnue.hpp"
 #include "search.hpp"
 #include "tt.hpp"
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <string>
 
 namespace cortex {
+
+static constexpr int kHashMbMin = 1;
+// Gemini.md §6.1: large TT on 8 GB RAM is desirable, but swap kills NPS — cap is a guardrail.
+static constexpr int kHashMbMax = 3072;
+
+static std::string g_eval_file_path = "cortex.nnue";
 
 static std::string square_str(Square s) {
   if (!is_ok(s)) return "-";
@@ -118,7 +126,8 @@ void uci_loop() {
     if (cmd == "uci") {
       std::cout << "id name Cortex\n";
       std::cout << "id author local\n";
-      std::cout << "option name Hash type spin default 16 min 1 max 512\n";
+      std::cout << "option name Hash type spin default 16 min 1 max " << kHashMbMax
+                << "\n";
       std::cout << "option name UseNNUE type check default true\n";
       std::cout << "option name EvalFile type string default cortex.nnue\n";
       std::cout << "uciok\n" << std::flush;
@@ -129,16 +138,27 @@ void uci_loop() {
       is >> n >> name;
       if (name == "Hash") {
         is >> v >> val;
-        hash_mb = std::stoi(val);
-        tt = TranspositionTable(size_t(hash_mb));
+        try {
+          int mb = std::stoi(val);
+          hash_mb = std::clamp(mb, kHashMbMin, kHashMbMax);
+        } catch (...) {
+          hash_mb = 16;
+        }
+        tt = TranspositionTable(static_cast<size_t>(hash_mb));
       } else if (name == "UseNNUE") {
         is >> v >> val;
-        if (val == "false") g_nnue = NnueEvaluator{};
+        if (val == "false")
+          g_nnue = NnueEvaluator{};
+        else if (val == "true")
+          g_nnue.load_file(g_eval_file_path);
       } else if (name == "EvalFile") {
         is >> v;
         std::getline(is, val);
         if (!val.empty() && val[0] == ' ') val.erase(0, 1);
-        if (!val.empty()) g_nnue.load_file(val);
+        if (!val.empty()) {
+          g_eval_file_path = val;
+          g_nnue.load_file(g_eval_file_path);
+        }
       }
     } else if (cmd == "ucinewgame") {
       tt.clear();

@@ -1,3 +1,5 @@
+// Hand-crafted eval: piece values + PST; king square is tapered (MG/EG tables)
+// using a 0..24 phase from non-pawn material; bishop-pair bonus fades in endgame.
 #include "eval_classic.hpp"
 
 namespace cortex {
@@ -49,6 +51,38 @@ static const int PST_KING_MG[64] = {
     20,  20,  0,   0,   0,   0,   20,  20,  20,  30,  10,  0,   0,   10,  30,  20,
 };
 
+static const int PST_KING_EG[64] = {
+    -50, -40, -30, -20, -20, -30, -40, -50, -30, -20, -10, 0,   0,   -10, -20, -30,
+    -30, -10, 20,  30,  30,  20,  -10, -30, -30, -10, 30,  40,  40,  30,  -10, -30,
+    -30, -10, 30,  40,  40,  30,  -10, -30, -30, -10, 20,  30,  30,  20,  -10, -30,
+    -30, -30, 0,   0,   0,   0,   -30, -30, -50, -30, -30, -30, -30, -30, -50, -50,
+};
+
+static int game_phase24(const Board& b) {
+  int w = 0;
+  for (Square sq = SQ_A1; sq <= SQ_H8; sq = Square(int(sq) + 1)) {
+    Piece pc = b.piece[sq];
+    if (pc == NO_PIECE) continue;
+    PieceType pt = type_of(pc);
+    if (pt == PAWN || pt == KING) continue;
+    if (pt == KNIGHT || pt == BISHOP)
+      w += 1;
+    else if (pt == ROOK)
+      w += 2;
+    else if (pt == QUEEN)
+      w += 4;
+  }
+  return w > 24 ? 24 : w;
+}
+
+static int king_pst_tapered(Square sq, Color view, int ph24) {
+  int idx = view == WHITE ? int(sq) : int(sq ^ 56);
+  int mg = PST_KING_MG[idx];
+  int eg = PST_KING_EG[idx];
+  int ps = ph24 * 256 / 24;
+  return (mg * ps + eg * (256 - ps)) / 256;
+}
+
 static int pst_for(PieceType pt, Square sq, Color view) {
   int idx = view == WHITE ? int(sq) : int(sq ^ 56);
   switch (pt) {
@@ -70,14 +104,28 @@ static int pst_for(PieceType pt, Square sq, Color view) {
 }
 
 int evaluate_classic(const Board& b) {
+  int ph24 = game_phase24(b);
+  int wb = 0, bb = 0;
+  for (Square sq = SQ_A1; sq <= SQ_H8; sq = Square(int(sq) + 1)) {
+    if (b.piece[sq] == W_BISHOP) wb++;
+    if (b.piece[sq] == B_BISHOP) bb++;
+  }
+  int ps = ph24 * 256 / 24;
+  int pair = (22 * (256 - ps)) / 256;
+
   int mg = 0;
   for (Square sq = SQ_A1; sq <= SQ_H8; sq = Square(int(sq) + 1)) {
     Piece pc = b.piece[sq];
     if (pc == NO_PIECE) continue;
     PieceType pt = type_of(pc);
-    int v = PIECE_VAL[pt] + pst_for(pt, sq, color_of(pc));
-    mg += (color_of(pc) == WHITE) ? v : -v;
+    Color col = color_of(pc);
+    int pst = (pt == KING) ? king_pst_tapered(sq, col, ph24) : pst_for(pt, sq, col);
+    int v = PIECE_VAL[pt] + pst;
+    mg += (col == WHITE) ? v : -v;
   }
+  if (wb >= 2) mg += pair;
+  if (bb >= 2) mg -= pair;
+
   return b.side == WHITE ? mg : -mg;
 }
 

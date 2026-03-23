@@ -1,3 +1,4 @@
+// Precomputed attacks and geometry (lines, between) for movegen and SEE.
 #include "bitboard.hpp"
 
 namespace cortex {

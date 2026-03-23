@@ -1,3 +1,6 @@
+// Implementation notes: aspiration widens on fail-low/high at root (depth >= 4).
+// NNUE+classic blend in evaluate_board keeps small nets from dominating tactics.
+// Full rationale and test coverage: docs/ENGINE.md, scripts/verify.sh.
 #include "search.hpp"
 #include "eval_classic.hpp"
 #include "nnue.hpp"
@@ -12,7 +15,23 @@ namespace cortex {
 
 static constexpr int MATE = 30000;
 static constexpr int MAX_PLY = 120;
+static constexpr int MATE_IN_MAX = MATE - MAX_PLY;    // scores >= this: win-mate band
+static constexpr int MATED_IN_MAX = -MATE + MAX_PLY;  // scores <= this: loss-mate band
 static std::atomic<bool> g_stop{false};
+
+// Mate scores depend on search ply; TT must store/retrieve in a ply-invariant form
+// (standard trick; avoids wrong cutoffs when the same node is hit at different depths).
+static int to_tt(int v, int ply) {
+  if (v >= MATE_IN_MAX) return v + ply;
+  if (v <= MATED_IN_MAX) return v - ply;
+  return v;
+}
+
+static int from_tt(int v, int ply) {
+  if (v >= MATE_IN_MAX) return v - ply;
+  if (v <= MATED_IN_MAX) return v + ply;
+  return v;
+}
 
 void search_set_stop(bool s) { g_stop = s; }
 bool search_stopped() { return g_stop.load(); }
@@ -148,6 +167,7 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
 static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
                    bool allow_null) {
   if (search_stopped() || time_up(ctx)) return 0;
+  if (ply >= MAX_PLY) return evaluate_board(*ctx.board);
   ctx.nodes++;
   if (ctx.lim.nodes_max > 0 && ctx.nodes >= ctx.lim.nodes_max) {
     search_set_stop(true);
@@ -167,15 +187,27 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
     if (TTEntry* te = ctx.tt->probe(key)) {
       if (te->best) tt_move = te->best;
       if (te->depth >= depth) {
+        int tsc = from_tt(te->score, ply);
         if (te->bound == BOUND_EXACT ||
-            (te->bound == BOUND_LOWER && te->score >= beta) ||
-            (te->bound == BOUND_UPPER && te->score <= alpha))
-          return te->score;
+            (te->bound == BOUND_LOWER && tsc >= beta) ||
+            (te->bound == BOUND_UPPER && tsc <= alpha))
+          return tsc;
       }
     }
   }
 
-  if (allow_null && depth >= 3 && !in_check && beta == alpha + 1) {
+  bool has_non_pawn_material = false;
+  for (Square sq = SQ_A1; sq <= SQ_H8; sq = Square(int(sq) + 1)) {
+    Piece pc = b.piece[sq];
+    if (pc == NO_PIECE || color_of(pc) != b.side) continue;
+    PieceType pt = type_of(pc);
+    if (pt != PAWN && pt != KING) {
+      has_non_pawn_material = true;
+      break;
+    }
+  }
+  if (allow_null && depth >= 3 && !in_check && beta == alpha + 1 &&
+      has_non_pawn_material) {
     Square old_ep = b.ep_square;
     b.side = ~b.side;
     b.hash ^= ZOBRIST.side;
@@ -263,7 +295,8 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
   if (best_sc <= orig_alpha) bd = BOUND_UPPER;
   else if (best_sc >= beta)
     bd = BOUND_LOWER;
-  if (ctx.tt && best_mv) ctx.tt->store(key, depth, best_sc, bd, best_mv);
+  if (ctx.tt && best_mv)
+    ctx.tt->store(key, depth, to_tt(best_sc, ply), bd, best_mv);
   return best_sc;
 }
 

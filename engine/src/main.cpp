@@ -1,3 +1,4 @@
+// Entry: optional `perft N` for movegen regression; else stdin UCI loop.
 #include "bitboard.hpp"
 #include "board.hpp"
 #include "eval_classic.hpp"

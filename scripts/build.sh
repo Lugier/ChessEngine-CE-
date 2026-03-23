@@ -3,12 +3,23 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/engine"
-: "${CXX:=clang++}"
+if [[ -z "${CXX:-}" ]]; then
+  if [[ "$(uname -s)" == Darwin ]]; then
+    CXX="clang++"
+  elif command -v g++ >/dev/null 2>&1; then
+    CXX="g++"
+  elif command -v clang++ >/dev/null 2>&1; then
+    CXX="clang++"
+  else
+    echo "No suitable C++ compiler found (g++/clang++)." >&2
+    exit 1
+  fi
+fi
 
 SOURCES=(
   src/main.cpp src/bitboard.cpp src/zobrist.cpp src/board.cpp
   src/movegen.cpp src/eval_classic.cpp src/tt.cpp src/search.cpp
-  src/see.cpp src/nnue.cpp src/uci.cpp
+  src/see.cpp src/nnue.cpp src/nnue_neon.cpp src/uci.cpp
 )
 
 do_compile() {

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Convert lines of `fen | w | d | l` (or `fen | cp`) into a simple packed binary
-for the trainer. No network I/O.
+Binpack writer for trainer/train_nnue.py.
 
-Example line (WDL sum ~1.0):
-  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | 0.33 | 0.34 | 0.33
+Text formats (pipe-separated, UTF-8):
+  fen | w | d | l     — explicit WDL (should sum ~1)
+  fen | cp            — centipawns from White POV; converted via cp_to_wdl()
+
+Binary layout: uint32 count; then per record uint16 fen_len, fen bytes, 3×float32 WDL.
+Little-endian. No I/O besides read argv[1], write argv[2].
+
+Large Lichess/SF-eval pipelines stay external (out-of-core); this script is the
+stable ingestion boundary into training.
 """
 from __future__ import annotations
 
@@ -55,22 +61,31 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    rows: list[tuple[str, tuple[float, float, float]]] = []
-    for line in args.input_txt.read_text().splitlines():
-        p = parse_line(line, cp_scale=args.cp_scale)
-        if p:
-            rows.append(p)
-
-    out = bytearray()
-    out += struct.pack("<I", len(rows))
-    for fen, (w, d, l_) in rows:
-        b = fen.encode("utf-8")
-        out += struct.pack("<H", len(b))
-        out += b
-        out += struct.pack("<fff", w, d, l_)
-
-    args.output_bin.write_bytes(out)
-    print(f"wrote {len(rows)} positions -> {args.output_bin}")
+    args.output_bin.parent.mkdir(parents=True, exist_ok=True)
+    with args.output_bin.open("wb") as f:
+        f.write(struct.pack("<I", 0))
+        n = 0
+        with args.input_txt.open("r", encoding="utf-8") as inp:
+            for line in inp:
+                p = parse_line(line, cp_scale=args.cp_scale)
+                if not p:
+                    continue
+                fen, (w, d, l_) = p
+                # sanitize explicit WDL input
+                if not (math.isfinite(w) and math.isfinite(d) and math.isfinite(l_)):
+                    continue
+                s = w + d + l_
+                if s <= 1e-9:
+                    continue
+                w, d, l_ = w / s, d / s, l_ / s
+                b = fen.encode("utf-8")
+                f.write(struct.pack("<H", len(b)))
+                f.write(b)
+                f.write(struct.pack("<fff", w, d, l_))
+                n += 1
+        f.seek(0)
+        f.write(struct.pack("<I", n))
+    print(f"wrote {n} positions -> {args.output_bin}")
 
 
 if __name__ == "__main__":
