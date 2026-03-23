@@ -76,7 +76,7 @@ Ausführliche Logik steht bewusst **hier**; die `.cpp`-Dateien tragen nur **kurz
 | `trainer/train_nnue.py` | WDL-Training, Export `cortex.nnue` |
 | `runpod/train_30h.sh` | Strikter 30h-Trainingslauf mit Checkpoints |
 | `runpod/resume_30h.sh` | Resume vom letzten Checkpoint |
-| `scripts/sprt.sh` | Akzeptanz-Gate (Match + Auswertung) |
+| `scripts/sprt.sh` | SPRT-oriented match runner; BayesElo evaluation is optional when installed |
 
 ## Änderungen an der Suche / Eval
 

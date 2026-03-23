@@ -60,6 +60,8 @@ def main() -> None:
         help="cp→WDL Steilheit (Gemini: geglättete Sigmoid/Softmax-Kette)",
     )
     args = ap.parse_args()
+    if args.cp_scale <= 0:
+        raise SystemExit("--cp-scale must be > 0")
 
     args.output_bin.parent.mkdir(parents=True, exist_ok=True)
     with args.output_bin.open("wb") as f:
@@ -79,6 +81,8 @@ def main() -> None:
                     continue
                 w, d, l_ = w / s, d / s, l_ / s
                 b = fen.encode("utf-8")
+                if len(b) == 0 or len(b) > 0xFFFF:
+                    continue
                 f.write(struct.pack("<H", len(b)))
                 f.write(b)
                 f.write(struct.pack("<fff", w, d, l_))

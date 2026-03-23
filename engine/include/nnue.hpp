@@ -44,13 +44,15 @@ class NnueEvaluator {
   mutable bool cache_valid_ = false;
   mutable Piece cache_piece_[SQUARE_NB]{};
   mutable Color cache_side_ = WHITE;
+  mutable int32_t cache_acc_[NnueWeights::kHidden]{};
   mutable int32_t cache_hidden_[NnueWeights::kHidden]{};
   mutable int8_t cache_feat_[NnueWeights::kInputKingBucket]{};
 
   int piece_feature_index(Square sq, Piece pc, const Board& b) const;
   void board_to_features(const Board& b, int8_t* out) const;
-  void recompute_hidden(const int8_t* feat, int32_t* hidden) const;
-  bool try_incremental_update(const Board& b, int32_t* hidden, int8_t* feat) const;
+  void recompute_acc(const int8_t* feat, int32_t* acc) const;
+  void activate_hidden(const int32_t* acc, int32_t* hidden) const;
+  bool try_incremental_update(const Board& b, int32_t* acc, int8_t* feat) const;
 };
 
 extern NnueEvaluator g_nnue;

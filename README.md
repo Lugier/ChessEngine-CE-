@@ -23,7 +23,7 @@ Cortex combines a modern alpha-beta search stack with optional NNUE evaluation a
 | SIMD | ARM64 NEON dot-product path with portable fallback |
 | Data pipeline | Text/binpack conversion + out-of-core Lichess parquet quiet filtering |
 | Training | PyTorch trainer with checkpoints/resume, val support, `CXN1`/`CXN2` export |
-| Operations | RunPod scripts for 30h training flow, resume, and artifact handoff |
+| Operations | RunPod scripts for checkpointed training and resume; outputs written to `runpod/out` and optionally copied to `engine/cortex.nnue` |
 | Verification | One-command repo gate: build, perft, UCI smoke, dataprep, trainer smoke |
 
 ## Architecture at a Glance
@@ -93,14 +93,56 @@ data/.venv/bin/python data/prepare_lichess_quiet.py \
   --summary-out data/processed/summary.json
 ```
 
-## RunPod 30h Standard Flow
+## RunPod Training Flow (epoch-based)
+
+The RunPod script is checkpointed and epoch-driven (`EPOCHS`, default `120`), not hard time-capped to exactly 30 hours.
+If `train.binpack` / `val.binpack` are missing, it now automatically:
+
+1. downloads large Lichess parquet shards on RunPod,
+2. builds quiet `train.binpack` / `val.binpack`,
+3. starts training.
 
 ```bash
-# inside your cloud environment with data available:
+# inside RunPod:
 ./runpod/train_30h.sh
 
 # resume from latest checkpoint if interrupted:
 ./runpod/resume_30h.sh
+```
+
+Useful env overrides:
+
+```bash
+# use existing parquet shards (skip remote download if present)
+PARQUET_GLOB='/workspace/Chess/data/raw/lichess-evals/*.parquet' ./runpod/train_30h.sh
+
+# quick debug on subset only
+MAX_ROWS=500000 ./runpod/train_30h.sh
+
+# disable auto dataprep/download (expect prebuilt binpacks)
+AUTO_PREP=0 ./runpod/train_30h.sh
+
+# explicit training knobs
+FEATURE_MODE=kingbucket LR=5e-4 EPOCHS=160 SAVE_EVERY=5 ./runpod/train_30h.sh
+
+# if your runtime Python blocks pip installs, keep this at 0 (default) and use
+# the Docker image dependencies; set 1 only as fallback
+INSTALL_RUNTIME_DEPS=0 ./runpod/train_30h.sh
+```
+
+New trainer-quality and throughput knobs in `train_30h.sh`:
+
+```bash
+OPTIMIZER=adamw \
+SCHEDULER=cosine \
+LOSS_FN=kldiv \
+USE_EMA=1 \
+LABEL_SMOOTHING=0.01 \
+WDL_TEMPERATURE=1.2 \
+GRAD_CLIP_NORM=1.0 \
+AMP_DTYPE=fp16 \
+CPU_THREADS=4 CPU_INTEROP_THREADS=1 \
+./runpod/train_30h.sh
 ```
 
 After training:
@@ -111,17 +153,51 @@ LARGE_NET_FILE=engine/cortex.nnue ./scripts/verify.sh
 
 ## Strength Evaluation Workflow
 
-Use match scripts to compare baseline vs candidate nets:
+By default, match scripts compare a classical baseline (`UseNNUE=false`) against an NNUE candidate. Set `BASE_NET` and `CAND_NET` explicitly for net-vs-net tests:
 
 ```bash
 ./scripts/sprt.sh
 ```
+
+Note: if `bayeselo` is not installed, `scripts/sprt.sh` still runs matches and writes PGN output, but does not produce an automated accept/reject verdict.
 
 For practical use:
 
 - ensure `cutechess-cli` is installed
 - provide explicit net paths for baseline/candidate as needed
 - run sufficient games for stable decisions
+
+## 4h Selfplay + Finetune Flow
+
+For faster iteration cycles on one RTX 3090 + high CPU concurrency:
+
+```bash
+./runpod/train_4h_selfplay.sh
+```
+
+Pipeline stages:
+
+1. selfplay generation via `cutechess-cli` with high `-concurrency`
+2. PGN conversion to binpack via `data/pgn_to_binpack.py`
+3. finetune with mixed supervised + selfplay data (`--aux-data`, `--aux-ratio`)
+4. quick SPRT gate
+
+Useful overrides:
+
+```bash
+CUTECHESS_BIN=/workspace/tools/cutechess-build/cutechess-cli \
+OUT_DIR=/workspace/Chess/runpod/out-4h \
+SELFPLAY_CONCURRENCY=48 \
+SELFPLAY_GAMES=1200 \
+SELFPLAY_RATIO=0.25 \
+FEATURE_MODE=kingbucket \
+BATCH_SIZE=6144 NUM_WORKERS=28 \
+EPOCHS=48 \
+./runpod/train_4h_selfplay.sh
+```
+
+Note: `scripts/cutechess_match.sh` now supports `CONCURRENCY`, `BASE_THREADS`,
+`CAND_THREADS`, `BASE_HASH`, and `CAND_HASH` for scalable selfplay/eval runs.
 
 ## Current Constraints and Realistic Positioning
 

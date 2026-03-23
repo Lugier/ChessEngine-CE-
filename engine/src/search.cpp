@@ -121,6 +121,7 @@ static bool time_up(const SearchCtx& c) {
 
 static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
   if (search_stopped() || time_up(ctx)) return 0;
+  if (ply >= MAX_PLY) return evaluate_board(*ctx.board);
   ctx.nodes++;
   if (ctx.lim.nodes_max > 0 && ctx.nodes >= ctx.lim.nodes_max) {
     search_set_stop(true);
@@ -129,6 +130,26 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
 
   Board& b = *ctx.board;
   if (is_rule_draw(b, ctx.rep_stack)) return 0;
+  bool in_check = b.in_check();
+
+  if (in_check) {
+    Movelist ml;
+    generate_legal(b, ml);
+    if (ml.count == 0) return -MATE + ply;
+    for (int i = 0; i < ml.count; ++i) {
+      Move m = ml.moves[i];
+      UndoInfo u;
+      b.do_move(m, u);
+      ctx.rep_stack.push_back(b.hash);
+      int sc = -qsearch(ctx, -beta, -alpha, ply + 1);
+      ctx.rep_stack.pop_back();
+      b.undo_move(m, u);
+      if (search_stopped()) return 0;
+      if (sc >= beta) return sc;
+      if (sc > alpha) alpha = sc;
+    }
+    return alpha;
+  }
 
   int stand = evaluate_board(b);
   if (stand >= beta) return stand;
@@ -209,15 +230,23 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
   if (allow_null && depth >= 3 && !in_check && beta == alpha + 1 &&
       has_non_pawn_material) {
     Square old_ep = b.ep_square;
+    int old_half = b.halfmove;
+    int old_full = b.fullmove;
     b.side = ~b.side;
+    b.halfmove++;
+    if (b.side == WHITE) b.fullmove++;
     b.hash ^= ZOBRIST.side;
     if (old_ep != SQ_NONE) {
       b.hash ^= ZOBRIST.ep[file_of(old_ep)];
       b.ep_square = SQ_NONE;
     }
+    ctx.rep_stack.push_back(b.hash);
     int R = 2 + depth / 6;
     int sc = -negamax(ctx, depth - 1 - R, -beta, -beta + 1, ply + 1, false);
+    ctx.rep_stack.pop_back();
     b.side = ~b.side;
+    b.halfmove = old_half;
+    b.fullmove = old_full;
     b.hash ^= ZOBRIST.side;
     b.ep_square = old_ep;
     if (old_ep != SQ_NONE) b.hash ^= ZOBRIST.ep[file_of(old_ep)];

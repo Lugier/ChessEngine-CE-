@@ -4,7 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/runpod/out}"
 CKPT_DIR="${CKPT_DIR:-$OUT_DIR/checkpoints}"
-LAST_CKPT="$(ls -1 "$CKPT_DIR"/epoch-*.pt 2>/dev/null | sort | tail -1 || true)"
+shopt -s nullglob
+ckpts=("$CKPT_DIR"/epoch-*.pt)
+shopt -u nullglob
+if [[ ${#ckpts[@]} -eq 0 ]]; then
+  LAST_CKPT=""
+else
+  LAST_CKPT="$(printf '%s\n' "${ckpts[@]}" | sort -V | tail -1)"
+fi
 
 if [[ -z "$LAST_CKPT" ]]; then
   echo "no checkpoint found in $CKPT_DIR" >&2

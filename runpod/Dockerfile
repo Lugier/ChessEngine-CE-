@@ -9,4 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY trainer/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+COPY data/requirements.txt /tmp/data-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/data-requirements.txt huggingface_hub
+
 CMD ["/bin/bash"]

@@ -6,6 +6,11 @@ CUTECHESS="${CUTECHESS_BIN:-cutechess-cli}"
 GAMES="${GAMES:-200}"
 TC="${TC:-40/8+0.08}"
 THREADS="${THREADS:-1}"
+CONCURRENCY="${CONCURRENCY:-1}"
+BASE_THREADS="${BASE_THREADS:-$THREADS}"
+CAND_THREADS="${CAND_THREADS:-$THREADS}"
+BASE_HASH="${BASE_HASH:-1024}"
+CAND_HASH="${CAND_HASH:-1024}"
 OPENINGS="${OPENINGS:-}"
 OUT="${OUT:-$ROOT/runpod/out/match.pgn}"
 BASE="${BASE_ENGINE:-$ROOT/engine/cortex}"
@@ -35,8 +40,8 @@ if [[ -n "$BASE_NET" && ! -r "$BASE_NET" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUT")"
-base_cmd="option.Hash=1024 option.Threads=$THREADS option.UseNNUE=false"
-cand_cmd="option.Hash=1024 option.Threads=$THREADS option.UseNNUE=true"
+base_cmd="option.Hash=$BASE_HASH option.Threads=$BASE_THREADS option.UseNNUE=false"
+cand_cmd="option.Hash=$CAND_HASH option.Threads=$CAND_THREADS option.UseNNUE=true"
 if [[ -n "$BASE_NET" ]]; then
   base_cmd="$base_cmd option.EvalFile=$BASE_NET option.UseNNUE=true"
 fi
@@ -62,6 +67,7 @@ fi
   -engine name=base cmd="$BASE" proto=uci $base_cmd \
   -engine name=cand cmd="$CAND" proto=uci $cand_cmd \
   -each tc="$TC" \
+  -concurrency "$CONCURRENCY" \
   -games "$GAMES" -repeat -recover \
   "${SPRT_ARGS[@]}" \
   "${OPEN_ARGS[@]}" \

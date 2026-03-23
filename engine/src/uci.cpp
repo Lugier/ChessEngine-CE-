@@ -168,14 +168,43 @@ void uci_loop() {
       board = nb;
     } else if (cmd == "go") {
       SearchLimits lim;
+      bool got_depth = false, got_movetime = false, got_nodes = false;
+      int wtime = -1, btime = -1, winc = 0, binc = 0, movestogo = 0;
       std::string w;
       while (is >> w) {
-        if (w == "depth")
+        if (w == "depth") {
           is >> lim.depth;
-        else if (w == "movetime")
+          got_depth = true;
+        } else if (w == "movetime") {
           is >> lim.movetime_ms;
-        else if (w == "nodes")
+          got_movetime = true;
+        } else if (w == "nodes") {
           is >> lim.nodes_max;
+          got_nodes = true;
+        } else if (w == "wtime")
+          is >> wtime;
+        else if (w == "btime")
+          is >> btime;
+        else if (w == "winc")
+          is >> winc;
+        else if (w == "binc")
+          is >> binc;
+        else if (w == "movestogo")
+          is >> movestogo;
+      }
+      if (!got_depth && !got_movetime && !got_nodes) {
+        lim.depth = 64;
+        const bool white_to_move = (board.side == WHITE);
+        const int remain = white_to_move ? wtime : btime;
+        const int inc = white_to_move ? winc : binc;
+        const int mtg = movestogo > 0 ? movestogo : 30;
+        if (remain > 0) {
+          int budget = remain / std::max(8, mtg) + inc / 2;
+          budget = std::clamp(budget, 5, std::max(5, remain - 5));
+          lim.movetime_ms = budget;
+        } else {
+          lim.movetime_ms = 50;
+        }
       }
       Move m = search_bestmove(board, lim, tt);
       std::cout << "bestmove " << move_to_uci(m) << "\n" << std::flush;
