@@ -4,11 +4,13 @@
 #include "zobrist.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <vector>
 
 namespace cortex {
 
 static constexpr int MATE = 30000;
+static constexpr int MAX_PLY = 120;
 static std::atomic<bool> g_stop{false};
 
 void search_set_stop(bool s) { g_stop = s; }
@@ -56,7 +58,29 @@ struct SearchCtx {
   SearchLimits lim;
   std::chrono::steady_clock::time_point start;
   std::vector<uint64_t> rep_stack;
+  Move killers[MAX_PLY][2]{};
+  int history[2][SQUARE_NB][SQUARE_NB]{};
+
+  void clear_heuristics() {
+    std::memset(killers, 0, sizeof(killers));
+    std::memset(history, 0, sizeof(history));
+  }
 };
+
+static int move_order_score(SearchCtx& ctx, const Board& b, Move m, Move tt_m,
+                            int ply) {
+  if (m == tt_m) return 2'000'000;
+  bool cap = b.piece[m.to_sq()] != NO_PIECE || m.type() == MT_EN_PASSANT;
+  if (m.type() == MT_PROMOTION)
+    return 1'950'000 - int(m.promo_kind());
+  if (cap) return 1'000'000 + mvv_lva(b, m);
+  if (ply >= 0 && ply < MAX_PLY) {
+    if (m == ctx.killers[ply][0]) return 900'000;
+    if (m == ctx.killers[ply][1]) return 899'000;
+  }
+  int side = b.side == WHITE ? 0 : 1;
+  return std::min(500'000, ctx.history[side][(int)m.from_sq()][(int)m.to_sq()]);
+}
 
 static bool is_rule_draw(const Board& b, const std::vector<uint64_t>& rep) {
   if (b.halfmove >= 100) return true;
@@ -93,7 +117,9 @@ static int qsearch(SearchCtx& ctx, int alpha, int beta, int ply) {
   Movelist ml;
   noisy_moves(b, ml);
   int scores[256];
-  for (int i = 0; i < ml.count; ++i) scores[i] = mvv_lva(b, ml.moves[i]);
+  Move no_tt{};
+  for (int i = 0; i < ml.count; ++i)
+    scores[i] = move_order_score(ctx, b, ml.moves[i], no_tt, ply);
   for (int a = 0; a < ml.count; ++a)
     for (int j = a + 1; j < ml.count; ++j)
       if (scores[j] > scores[a]) {
@@ -175,13 +201,8 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
   int orig_alpha = alpha;
 
   int order_sc[256];
-  for (int i = 0; i < ml.count; ++i) {
-    Move m = ml.moves[i];
-    if (m == tt_move)
-      order_sc[i] = 1'000'000;
-    else
-      order_sc[i] = mvv_lva(b, m);
-  }
+  for (int i = 0; i < ml.count; ++i)
+    order_sc[i] = move_order_score(ctx, b, ml.moves[i], tt_move, ply);
   for (int a = 0; a < ml.count; ++a)
     for (int j = a + 1; j < ml.count; ++j)
       if (order_sc[j] > order_sc[a]) {
@@ -219,7 +240,20 @@ static int negamax(SearchCtx& ctx, int depth, int alpha, int beta, int ply,
       best_mv = m;
     }
     if (sc > alpha) alpha = sc;
-    if (alpha >= beta) break;
+    if (alpha >= beta) {
+      if (!capture && m.type() != MT_PROMOTION && ply < MAX_PLY) {
+        if (m != ctx.killers[ply][0]) {
+          ctx.killers[ply][1] = ctx.killers[ply][0];
+          ctx.killers[ply][0] = m;
+        }
+        int bonus = depth * depth;
+        int mf = (int)m.from_sq(), mt = (int)m.to_sq();
+        Color mover = b.side;
+        int& h = ctx.history[mover == WHITE ? 0 : 1][mf][mt];
+        h = std::min(8192, h + bonus);
+      }
+      break;
+    }
   }
 
   Bound bd = BOUND_EXACT;
@@ -244,9 +278,21 @@ Move search_bestmove(Board& b, const SearchLimits& lim, TranspositionTable& tt) 
   if (root.count == 0) return Move{};
 
   Move best = root.moves[0];
+  int prev_sc = 0;
   for (int d = 1; d <= lim.depth; ++d) {
+    ctx.clear_heuristics();
     int alpha = -MATE - 1;
     int beta = MATE + 1;
+    if (d >= 4) {
+      int delta = 32 + std::abs(prev_sc) / 32;
+      delta = std::min(delta, MATE / 4);
+      alpha = std::max(-MATE + 100, prev_sc - delta);
+      beta = std::min(MATE - 100, prev_sc + delta);
+    }
+
+    int orig_alpha = alpha;
+    int orig_beta = beta;
+  redo_root:
     int best_sc = -MATE - 1;
     Move best_m = best;
     for (int i = 0; i < root.count; ++i) {
@@ -255,7 +301,14 @@ Move search_bestmove(Board& b, const SearchLimits& lim, TranspositionTable& tt) 
       UndoInfo u;
       b.do_move(m, u);
       ctx.rep_stack.push_back(b.hash);
-      int sc = -negamax(ctx, d - 1, -beta, -alpha, 1, true);
+      int sc;
+      if (i == 0)
+        sc = -negamax(ctx, d - 1, -beta, -alpha, 1, true);
+      else {
+        sc = -negamax(ctx, d - 1, -alpha - 1, -alpha, 1, true);
+        if (sc > alpha && sc < beta)
+          sc = -negamax(ctx, d - 1, -beta, -alpha, 1, true);
+      }
       ctx.rep_stack.pop_back();
       b.undo_move(m, u);
       if (search_stopped()) goto done;
@@ -265,6 +318,23 @@ Move search_bestmove(Board& b, const SearchLimits& lim, TranspositionTable& tt) 
       }
       if (sc > alpha) alpha = sc;
     }
+
+    if (d >= 4 && best_sc <= orig_alpha && orig_alpha > -MATE + 200) {
+      alpha = -MATE - 1;
+      beta = MATE + 1;
+      orig_alpha = alpha;
+      orig_beta = beta;
+      goto redo_root;
+    }
+    if (d >= 4 && best_sc >= orig_beta && orig_beta < MATE - 200) {
+      alpha = -MATE - 1;
+      beta = MATE + 1;
+      orig_alpha = alpha;
+      orig_beta = beta;
+      goto redo_root;
+    }
+
+    prev_sc = best_sc;
     best = best_m;
     if (search_stopped() || time_up(ctx)) break;
   }
