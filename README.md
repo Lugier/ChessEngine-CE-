@@ -30,6 +30,16 @@ Details und Formeln liegen im vollen Text von `Gemini.md` im Repo-Root.
 
 Produces `engine/cortex`. With CMake installed, you can also use `engine/CMakeLists.txt`.
 
+**Alles auf einmal prüfen** (Build, Perft, UCI, `prepare_binpack`, Trainer, UCI mit Netz — legt bei Bedarf `trainer/.venv` an und führt `pip install` aus, einmalig mit Internet):
+
+```bash
+chmod +x scripts/smoke.sh   # falls nötig
+./scripts/smoke.sh
+```
+
+Ohne Trainer (kein pip): `SKIP_TRAINER=1 ./scripts/smoke.sh`  
+Alternativ: `make smoke` (nutzt dasselbe Skript).
+
 ## Quick checks
 
 ```bash
