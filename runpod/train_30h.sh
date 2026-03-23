@@ -57,6 +57,10 @@ CP_SCALE="${CP_SCALE:-400}"
 MAX_ROWS="${MAX_ROWS:-0}"
 CHUNK_SIZE="${CHUNK_SIZE:-200000}"
 PREP_WORKERS="${PREP_WORKERS:-32}"
+POSITION_POLICY="${POSITION_POLICY:-mixed}"
+MIX_ALL="${MIX_ALL:-0.50}"
+MIX_TACTICAL="${MIX_TACTICAL:-0.30}"
+MIX_QUIET="${MIX_QUIET:-0.20}"
 DOWNLOAD_RETRIES="${DOWNLOAD_RETRIES:-3}"
 RETRY_DELAY_SEC="${RETRY_DELAY_SEC:-8}"
 INSTALL_RUNTIME_DEPS="${INSTALL_RUNTIME_DEPS:-0}"
@@ -92,6 +96,7 @@ echo "val_every=$VAL_EVERY" | tee -a "$LOG"
 echo "optimizer=$OPTIMIZER scheduler=$SCHEDULER loss=$LOSS_FN ema=$USE_EMA amp_dtype=$AMP_DTYPE" | tee -a "$LOG"
 echo "strict_full_run=$STRICT_FULL_RUN min_train_rows=$MIN_TRAIN_ROWS min_val_rows=$MIN_VAL_ROWS" | tee -a "$LOG"
 echo "prep_workers=$PREP_WORKERS" | tee -a "$LOG"
+echo "position_policy=$POSITION_POLICY mix_all=$MIX_ALL mix_tactical=$MIX_TACTICAL mix_quiet=$MIX_QUIET" | tee -a "$LOG"
 echo "python_train=$PY python_data=$DATA_PY install_runtime_deps=$INSTALL_RUNTIME_DEPS" | tee -a "$LOG"
 echo "auto_post_verify=$AUTO_POST_VERIFY auto_post_eval=$AUTO_POST_EVAL" | tee -a "$LOG"
 
@@ -195,7 +200,11 @@ PY
     --cp-scale "$CP_SCALE" \
     --max-rows "$MAX_ROWS" \
     --chunk-size "$CHUNK_SIZE" \
-    --workers "$PREP_WORKERS" | tee -a "$LOG"
+    --workers "$PREP_WORKERS" \
+    --position-policy "$POSITION_POLICY" \
+    --mix-all "$MIX_ALL" \
+    --mix-tactical "$MIX_TACTICAL" \
+    --mix-quiet "$MIX_QUIET" | tee -a "$LOG"
 }
 
 validate_dataset_selection() {

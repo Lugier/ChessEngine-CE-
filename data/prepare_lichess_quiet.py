@@ -33,11 +33,7 @@ def cp_to_wdl(cp: float, scale: float = 400.0) -> tuple[float, float, float]:
     return ea / s, eb / s, ec / s
 
 
-def quiet_position(fen: str) -> bool:
-    try:
-        b = chess.Board(fen)
-    except ValueError:
-        return False
+def quiet_position_board(b: chess.Board) -> bool:
     if b.is_check():
         return False
     # Keep only calm positions: no immediate capture/promotion candidate.
@@ -47,6 +43,43 @@ def quiet_position(fen: str) -> bool:
         if mv.promotion is not None:
             return False
     return True
+
+
+def tactical_position_board(b: chess.Board) -> bool:
+    if b.is_check():
+        return True
+    checking = 0
+    for mv in b.legal_moves:
+        if b.is_capture(mv):
+            return True
+        if mv.promotion is not None:
+            return True
+        if b.gives_check(mv):
+            checking += 1
+            if checking >= 2:
+                return True
+    return False
+
+
+def classify_position(fen: str, policy: str) -> str | None:
+    try:
+        b = chess.Board(fen)
+    except ValueError:
+        return None
+    quiet = quiet_position_board(b)
+    tactical = tactical_position_board(b)
+    if policy == "quiet":
+        return "quiet" if quiet else None
+    if policy == "tactical":
+        return "tactical" if tactical else None
+    if policy == "all":
+        return "all"
+    # mixed: disjoint buckets for stable composition
+    if tactical:
+        return "tactical"
+    if quiet:
+        return "quiet"
+    return "all"
 
 
 @dataclass
@@ -60,6 +93,9 @@ class Stats:
     skipped_non_quiet: int = 0
     skipped_bad_cp: int = 0
     skipped_too_long_fen: int = 0
+    bucket_all: int = 0
+    bucket_tactical: int = 0
+    bucket_quiet: int = 0
 
 
 class BinpackWriter:
@@ -122,7 +158,9 @@ def atomic_write_text(path: Path, text: str) -> None:
     tmp_path.replace(path)
 
 
-def row_to_example(row: tuple[object, object, object, object], cp_scale: float) -> tuple[str, tuple[float, float, float]] | None:
+def row_to_example(
+    row: tuple[object, object, object, object], cp_scale: float, policy: str
+) -> tuple[str, tuple[float, float, float], str] | None:
     fen, cp, _mate, _depth = row
     if not isinstance(fen, str):
         return None
@@ -134,9 +172,30 @@ def row_to_example(row: tuple[object, object, object, object], cp_scale: float) 
         return None
     if not math.isfinite(cpf):
         return None
-    if not quiet_position(fen):
+    bucket = classify_position(fen, policy)
+    if bucket is None:
         return None
-    return fen, cp_to_wdl(cpf, scale=cp_scale)
+    return fen, cp_to_wdl(cpf, scale=cp_scale), bucket
+
+
+def mixed_accept(
+    bucket: str,
+    counts: dict[str, int],
+    ratios: dict[str, float],
+    total_selected: int,
+    rng: random.Random,
+) -> bool:
+    # Keep stream throughput high while steering towards target mix.
+    if total_selected < 1000:
+        return True
+    target = ratios.get(bucket, 0.0)
+    curr = counts.get(bucket, 0)
+    curr_frac = curr / max(1, total_selected)
+    if curr_frac <= target:
+        return True
+    overflow = curr_frac - target
+    damp = 1.0 - (overflow / max(1e-6, 1.0 - target))
+    return rng.random() < max(0.05, min(1.0, damp))
 
 
 def main() -> None:
@@ -154,6 +213,10 @@ def main() -> None:
     ap.add_argument("--chunk-size", type=int, default=200000)
     ap.add_argument("--workers", type=int, default=max(1, min(os.cpu_count() or 1, 64)))
     ap.add_argument("--progress-every", type=int, default=5, help="Print progress every N fetched chunks.")
+    ap.add_argument("--position-policy", choices=["quiet", "all", "tactical", "mixed"], default="quiet")
+    ap.add_argument("--mix-all", type=float, default=0.50, help="Target ratio for general positions in mixed mode.")
+    ap.add_argument("--mix-tactical", type=float, default=0.30, help="Target ratio for tactical positions in mixed mode.")
+    ap.add_argument("--mix-quiet", type=float, default=0.20, help="Target ratio for quiet positions in mixed mode.")
     args = ap.parse_args()
 
     if args.cp_scale <= 0:
@@ -168,9 +231,18 @@ def main() -> None:
         raise ValueError("--workers must be > 0")
     if args.progress_every <= 0:
         raise ValueError("--progress-every must be > 0")
+    if args.position_policy == "mixed":
+        s = args.mix_all + args.mix_tactical + args.mix_quiet
+        if s <= 0:
+            raise ValueError("mixed policy requires positive mix ratios")
+        args.mix_all /= s
+        args.mix_tactical /= s
+        args.mix_quiet /= s
 
     rng = random.Random(args.seed)
     stats = Stats()
+    bucket_counts = {"all": 0, "tactical": 0, "quiet": 0}
+    mix_ratios = {"all": args.mix_all, "tactical": args.mix_tactical, "quiet": args.mix_quiet}
     train = BinpackWriter(args.train_out)
     val = BinpackWriter(args.val_out)
 
@@ -208,22 +280,41 @@ def main() -> None:
             chunk_idx += 1
             stats.passed_sql += len(chunk)
             iterator = (
-                pool.map(row_to_example, chunk, [args.cp_scale] * len(chunk), chunksize=512)
+                pool.map(
+                    row_to_example,
+                    chunk,
+                    [args.cp_scale] * len(chunk),
+                    [args.position_policy] * len(chunk),
+                    chunksize=512,
+                )
                 if pool is not None
-                else (row_to_example(row, args.cp_scale) for row in chunk)
+                else (row_to_example(row, args.cp_scale, args.position_policy) for row in chunk)
             )
             for example in iterator:
                 stats.scanned_rows += 1
                 if example is None:
                     continue
-                fen, wdl = example
+                fen, wdl, bucket = example
+                selected_total = stats.train_rows + stats.val_rows
+                if args.position_policy == "mixed" and not mixed_accept(
+                    bucket=bucket,
+                    counts=bucket_counts,
+                    ratios=mix_ratios,
+                    total_selected=selected_total,
+                    rng=rng,
+                ):
+                    continue
                 stats.passed_quiet += 1
+                bucket_counts[bucket] += 1
                 if rng.random() < args.val_ratio:
                     val.add(fen, wdl)
                     stats.val_rows += 1
                 else:
                     train.add(fen, wdl)
                     stats.train_rows += 1
+            stats.bucket_all = bucket_counts["all"]
+            stats.bucket_tactical = bucket_counts["tactical"]
+            stats.bucket_quiet = bucket_counts["quiet"]
             if chunk_idx % args.progress_every == 0:
                 elapsed = max(1e-6, time.time() - started)
                 scanned = stats.scanned_rows
@@ -235,7 +326,9 @@ def main() -> None:
                 print(
                     f"[dataprep] chunk={chunk_idx} scanned={scanned}/{int(total_sql_rows)} "
                     f"({pct:.2f}%) quiet={stats.passed_quiet} train={stats.train_rows} "
-                    f"val={stats.val_rows} speed={rows_per_sec:.0f} rows/s eta={eta_txt}"
+                    f"val={stats.val_rows} buckets(all/tac/quiet)="
+                    f"{bucket_counts['all']}/{bucket_counts['tactical']}/{bucket_counts['quiet']} "
+                    f"speed={rows_per_sec:.0f} rows/s eta={eta_txt}"
                 )
     except Exception:
         train.abort()
